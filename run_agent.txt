@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""
+Initialize and run the Langchain Tool Agent with Ollama
+Uses ChatOllama with proper tool binding support
+No OpenAI API key required!
+"""
+
+import os
+import sys
+import argparse
+from pathlib import Path
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config import Config
+from agent import create_agent
+
+
+def check_ollama_connection():
+    """Check if Ollama is running and accessible"""
+    try:
+        import requests
+        # response = requests.get("http://127.0.0.1:11434/api/tags", timeout=5)
+        response = requests.get(f"{Config.OLLAMA_HOST}/api/version", timeout=5)
+        if response.status_code == 200:
+            print(f"✓ Ollama is running at {Config.OLLAMA_HOST}")
+            return True
+    except Exception as e:
+        print(f"✗ Cannot connect to Ollama at {Config.OLLAMA_HOST}")
+        print(f"  Error: {e}")
+        print(f"\n  Make sure Ollama is running:")
+        print(f"    ollama serve")
+        return False
+
+
+def check_model_available():
+    """Check if the configured model is available in Ollama"""
+    try:
+        import requests
+        response = requests.get(
+            f"{Config.OLLAMA_HOST}/api/tags",
+            timeout=5
+        )
+        if response.status_code == 200:
+            models = response.json().get('models', [])
+            model_names = [m['name'] for m in models]
+            
+            # Check if our model is available
+            if Config.LLM_MODEL in model_names:
+                print(f"✓ Model '{Config.LLM_MODEL}' is available")
+                return True
+            else:
+                print(f"✗ Model '{Config.LLM_MODEL}' not found")
+                print(f"  Available models: {', '.join(model_names) if model_names else 'None'}")
+                print(f"\n  To download the model:")
+                print(f"    ollama pull {Config.LLM_MODEL}")
+                return False
+    except Exception as e:
+        print(f"✗ Cannot check available models")
+        print(f"  Error: {e}")
+        return False
+
+
+def create_ollama_agent():
+    """Create and return an agent with Ollama LLM using ChatOllama"""
+    try:
+        from langchain_ollama import ChatOllama
+        
+        print(f"\nInitializing ChatOllama...")
+        print(f"  Model: {Config.LLM_MODEL}")
+        print(f"  Host: {Config.OLLAMA_HOST}")
+        print(f"  Temperature: {Config.LLM_TEMPERATURE}")
+        
+        # Create ChatOllama LLM (has proper tool binding support)
+        llm = ChatOllama(
+            model=Config.LLM_MODEL,
+            base_url=Config.OLLAMA_HOST,
+            temperature=Config.LLM_TEMPERATURE,
+            num_predict=Config.LLM_MAX_TOKENS,
+            top_k=40,
+            top_p=0.9,
+        )
+        
+        print("  ✓ ChatOllama initialized")
+        
+        # Create agent with LLM and tools
+        agent = create_agent(llm=llm)
+        print("✓ Agent created with LLM + Tools\n")
+        return agent
+        
+    except ImportError:
+        print("✗ langchain-ollama not installed")
+        print("  Install with: pip install langchain-ollama")
+        return None
+    except Exception as e:
+        print(f"✗ Failed to initialize agent: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def interactive_mode(agent):
+    """Run agent in interactive mode with full conversation display"""
+    print("\n" + "="*60)
+    print("INTERACTIVE MODE WITH LLM + TOOLS")
+    print("="*60)
+    print("Enter your requests below (type 'quit' to exit)")
+    print("Type 'help' to see available tools")
+    print("The agent will show you the full conversation with tool calls\n")
+    
+    while True:
+        try:
+            user_input = input("You: ").strip()
+            
+            if user_input.lower() == 'quit':
+                print("Goodbye!")
+                break
+            
+            if user_input.lower() == 'help':
+                agent.print_tools_info()
+                continue
+            
+            if not user_input:
+                continue
+            
+            result = agent.run(user_input)
+            
+            if result['success']:
+                # Output already shown by agent.run() with full conversation
+                pass
+            else:
+                print(f"\n✗ Error: {result['error']}\n")
+                
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+        except Exception as e:
+            print(f"Error: {e}\n")
+
+
+def main():
+    """Main entry point"""
+    parser = argparse.ArgumentParser(
+        description="Langchain Tool Agent with Ollama (LLM + Tools)"
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Just check Ollama connectivity and exit"
+    )
+    
+    args = parser.parse_args()
+    
+    print("="*60)
+    print("LANGCHAIN TOOL AGENT WITH OLLAMA")
+    print("="*60)
+    print(f"Configuration:")
+    print(f"  Model: {Config.LLM_MODEL}")
+    print(f"  Ollama Host: {Config.OLLAMA_HOST}")
+    print(f"  Database: {Config.DATABASE_PATH}")
+    print("="*60 + "\n")
+    
+    # Check Ollama connectivity
+    print("Checking Ollama connectivity...\n")
+    if not check_ollama_connection():
+        print("\n✗ Cannot connect to Ollama!")
+        print("Please make sure Ollama is running:")
+        print("  ollama serve")
+        return
+    
+    if not check_model_available():
+        print("\n✗ Model is not available!")
+        print(f"Please download it:")
+        print(f"  ollama pull {Config.LLM_MODEL}")
+        return
+    
+    # If just checking, exit
+    if args.check:
+        print("\n✓ Everything is set up correctly!")
+        return
+    
+    # Create and run agent
+    print("\n" + "="*60)
+    print("INITIALIZING AGENT")
+    print("="*60)
+    
+    agent = create_ollama_agent()
+    if agent is None:
+        print("Failed to create agent. Exiting.")
+        return
+    
+    # Show available tools
+    agent.print_tools_info()
+    
+    # Run in interactive mode
+    interactive_mode(agent)
+
+
+if __name__ == "__main__":
+    main()

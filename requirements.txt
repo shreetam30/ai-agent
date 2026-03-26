@@ -1,0 +1,12 @@
+# Core dependencies
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-ollama>=0.1.0
+langchain-community>=0.2.0
+
+# Data processing and math
+numpy>=1.26.0
+pandas>=2.1.0
+
+# HTTP utilities
+requests>=2.31.0
